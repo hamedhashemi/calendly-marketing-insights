@@ -1,0 +1,99 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+
+jobs:
+  deploy:
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+
+    name: Deploy to AWS
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+
+      - name: Checkout exact commit that passed CI
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Configure AWS credentials with OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::358171523478:role/github-calendly-deploy-role
+          aws-region: us-east-1
+
+      - name: Verify AWS identity
+        run: |
+          aws sts get-caller-identity
+
+      - name: Deploy Glue scripts
+        run: |
+          aws s3 cp \
+            glue/calendly_landing_to_bronze.py \
+            s3://dea-calendly-marketing-hh/scripts/calendly_landing_to_bronze.py
+
+          aws s3 cp \
+            glue/calendly_bronze_to_silver.py \
+            s3://dea-calendly-marketing-hh/scripts/calendly_bronze_to_silver.py
+
+          aws s3 cp \
+            glue/marketing_spend_landing_to_bronze.py \
+            s3://dea-calendly-marketing-hh/scripts/marketing_spend_landing_to_bronze.py
+
+          aws s3 cp \
+            glue/marketing_spend_bronze_to_silver.py \
+            s3://dea-calendly-marketing-hh/scripts/marketing_spend_bronze_to_silver.py
+
+          aws s3 cp \
+            glue/calendly_marketing_silver_to_gold.py \
+            s3://dea-calendly-marketing-hh/scripts/calendly_marketing_silver_to_gold.py
+
+          aws s3 cp \
+            glue/calendly_operational_gold.py \
+            s3://dea-calendly-marketing-hh/scripts/calendly_operational_gold.py
+
+      - name: Package Calendly webhook Lambda
+        run: |
+          cd lambda_calendly_webhook
+          zip -r ../calendly-webhook-ingestion.zip .
+
+      - name: Deploy Calendly webhook Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name calendly-webhook-ingestion \
+            --zip-file fileb://calendly-webhook-ingestion.zip
+
+          aws lambda wait function-updated-v2 \
+            --function-name calendly-webhook-ingestion
+
+      - name: Package Marketing Spend Lambda
+        run: |
+          cd lambda_marketing_spend
+          zip -r ../marketing-spend-ingestion.zip .
+
+      - name: Deploy Marketing Spend Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name marketing-spend-ingestion \
+            --zip-file fileb://marketing-spend-ingestion.zip
+
+          aws lambda wait function-updated-v2 \
+            --function-name marketing-spend-ingestion
+
+      - name: Deployment summary
+        run: |
+          echo "Glue scripts deployed successfully."
+          echo "Lambda functions deployed successfully."
+          echo "No Glue job or Step Functions execution was triggered."
