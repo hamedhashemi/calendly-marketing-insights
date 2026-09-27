@@ -1,0 +1,30 @@
+# Python virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local environment / secrets
+.env
+.env.*
+.streamlit/secrets.toml
+.aws/
+
+# IDE
+.vscode/
+.idea/
+
+# Temporary packages
+*.zip
+*.tar
+*.gz
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
